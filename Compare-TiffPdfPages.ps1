@@ -168,42 +168,21 @@ function Get-MatchingPdfPath {
     )
     
     try {
-        # Get the relative path from the input folder
+        # Get the folder name which will be the PDF file name
         $folderName = $TiffFolder.Name
-        $relativePath = $TiffFolder.FullName -replace [regex]::Escape($InputPath), ""
-        $relativePath = $relativePath.TrimStart('\')
         
         Write-Log "Checking possible PDF locations:" -Type Info
         
-        # First path: Check with full folder structure
-        $fullStructurePath = Join-Path -Path $OutputPath -ChildPath $relativePath
-        $fullStructurePath = Join-Path -Path $fullStructurePath -ChildPath "$folderName.pdf"
+        # Recursive search for the PDF file that matches the folder name
+        $pdfFile = Get-ChildItem -Path $OutputPath -Recurse -Filter "$folderName.pdf" -File | Select-Object -First 1
         
-        # Second path: Check direct in output with relative path
-        $directPath = Join-Path -Path $OutputPath -ChildPath "$folderName.pdf"
-        
-        Write-Log "  Checking full structure path: $fullStructurePath" -Type Info
-        if (Test-Path -Path $fullStructurePath -PathType Leaf) {
-            Write-Log "  Found PDF at full structure path" -Type Info
-            return $fullStructurePath
+        if ($pdfFile) {
+            Write-Log "  Found PDF: $($pdfFile.FullName)" -Type Info
+            return $pdfFile.FullName
+        } else {
+            Write-Log "  No PDF found matching folder name: $folderName" -Type Warning
+            return $null
         }
-        
-        Write-Log "  Checking direct path: $directPath" -Type Info
-        if (Test-Path -Path $directPath -PathType Leaf) {
-            Write-Log "  Found PDF at direct path" -Type Info
-            return $directPath
-        }
-        
-        # Third path: Check with preserved folder structure
-        $preservedPath = Join-Path -Path $OutputPath -ChildPath $relativePath
-        $files = Get-ChildItem -Path $preservedPath -Filter "*.pdf" -File
-        if ($files.Count -gt 0) {
-            Write-Log "  Found PDF in preserved structure: $($files[0].FullName)" -Type Info
-            return $files[0].FullName
-        }
-        
-        Write-Log "  No PDF found in any location" -Type Warning
-        return $null
     }
     catch {
         Write-Log "Error in Get-MatchingPdfPath: $_" -Type Error
@@ -244,7 +223,7 @@ function Move-TiffFiles {
         
         # Move TIFF files
         $movedCount = 0
-        $tiffFiles = Get-ChildItem -Path $fullSourcePath -Filter "*.tif", "*.tiff" -File
+        $tiffFiles = Get-ChildItem -Path $fullSourcePath -Filter "*.tif" -File
         
         foreach ($file in $tiffFiles) {
             $destinationFile = Join-Path -Path $destinationPath -ChildPath $file.Name
@@ -371,10 +350,10 @@ do {
         Write-Log "Move-To Path: $MoveToPath" -Type Info
     }
 
-    # Get all directories containing .tif or .tiff files
+    # Get all directories containing .tif files
     $tiffDirs = Get-ChildItem -Path $InputPath -Directory -Recurse | 
         Where-Object { 
-            Get-ChildItem -Path $_.FullName -Filter "*.tif", "*.tiff" -File
+            Get-ChildItem -Path $_.FullName -Filter "*.tif" -File
         }
 
     $totalDirs = $tiffDirs.Count
@@ -413,7 +392,7 @@ do {
             continue
         }
         
-        $tiffCount = (Get-ChildItem -Path $tiffDir.FullName -Filter "*.tif", "*.tiff" -File).Count
+        $tiffCount = (Get-ChildItem -Path $tiffDir.FullName -Filter "*.tif" -File).Count
         $pdfPages = $Result.Pages
         
         $script:totalProcessed++
@@ -431,7 +410,7 @@ do {
             }
             continue
         }
-        
+		
         if ($pdfPages -eq $tiffCount) {
             Write-Log "  Status: MATCH" -Type Info
             $script:matchingCount++
