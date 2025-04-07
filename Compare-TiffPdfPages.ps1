@@ -168,30 +168,38 @@ function Get-MatchingPdfPath {
     )
     
     try {
-        # Get parent folder directly from FullName
-        $parentFolder = Split-Path -Path $TiffFolder.FullName -Parent
-        $parentName = Split-Path -Path $parentFolder -Leaf
+        # Get the relative path from the input folder
+        $folderName = $TiffFolder.Name
+        $relativePath = $TiffFolder.FullName -replace [regex]::Escape($InputPath), ""
+        $relativePath = $relativePath.TrimStart('\')
         
         Write-Log "Checking possible PDF locations:" -Type Info
-        Write-Log "  Parent folder: $parentName" -Type Info
         
-        # First path: Check in parent folder structure
-        $nestedPath = Join-Path -Path $OutputPath -ChildPath $parentName
-        $nestedPath = Join-Path -Path $nestedPath -ChildPath "$($TiffFolder.Name).pdf"
+        # First path: Check with full folder structure
+        $fullStructurePath = Join-Path -Path $OutputPath -ChildPath $relativePath
+        $fullStructurePath = Join-Path -Path $fullStructurePath -ChildPath "$folderName.pdf"
         
-        # Second path: Check directly in output
-        $directPath = Join-Path -Path $OutputPath -ChildPath "$($TiffFolder.Name).pdf"
+        # Second path: Check direct in output with relative path
+        $directPath = Join-Path -Path $OutputPath -ChildPath "$folderName.pdf"
         
-        Write-Log "  Checking nested path: $nestedPath" -Type Info
-        if (Test-Path -Path $nestedPath -PathType Leaf) {
-            Write-Log "  Found PDF at nested path" -Type Info
-            return $nestedPath
+        Write-Log "  Checking full structure path: $fullStructurePath" -Type Info
+        if (Test-Path -Path $fullStructurePath -PathType Leaf) {
+            Write-Log "  Found PDF at full structure path" -Type Info
+            return $fullStructurePath
         }
         
         Write-Log "  Checking direct path: $directPath" -Type Info
         if (Test-Path -Path $directPath -PathType Leaf) {
             Write-Log "  Found PDF at direct path" -Type Info
             return $directPath
+        }
+        
+        # Third path: Check with preserved folder structure
+        $preservedPath = Join-Path -Path $OutputPath -ChildPath $relativePath
+        $files = Get-ChildItem -Path $preservedPath -Filter "*.pdf" -File
+        if ($files.Count -gt 0) {
+            Write-Log "  Found PDF in preserved structure: $($files[0].FullName)" -Type Info
+            return $files[0].FullName
         }
         
         Write-Log "  No PDF found in any location" -Type Warning
