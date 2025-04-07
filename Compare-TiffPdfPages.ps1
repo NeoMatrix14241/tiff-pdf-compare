@@ -244,7 +244,7 @@ function Move-TiffFiles {
         
         # Move TIFF files
         $movedCount = 0
-        $tiffFiles = Get-ChildItem -Path $fullSourcePath -Filter "*.tif" -File
+        $tiffFiles = Get-ChildItem -Path $fullSourcePath -Filter "*.tif", "*.tiff" -File
         
         foreach ($file in $tiffFiles) {
             $destinationFile = Join-Path -Path $destinationPath -ChildPath $file.Name
@@ -371,10 +371,10 @@ do {
         Write-Log "Move-To Path: $MoveToPath" -Type Info
     }
 
-    # Get all directories containing .tif files
+    # Get all directories containing .tif or .tiff files
     $tiffDirs = Get-ChildItem -Path $InputPath -Directory -Recurse | 
         Where-Object { 
-            Get-ChildItem -Path $_.FullName -Filter "*.tif" -File
+            Get-ChildItem -Path $_.FullName -Filter "*.tif", "*.tiff" -File
         }
 
     $totalDirs = $tiffDirs.Count
@@ -413,7 +413,7 @@ do {
             continue
         }
         
-        $tiffCount = (Get-ChildItem -Path $tiffDir.FullName -Filter "*.tif" -File).Count
+        $tiffCount = (Get-ChildItem -Path $tiffDir.FullName -Filter "*.tif", "*.tiff" -File).Count
         $pdfPages = $Result.Pages
         
         $script:totalProcessed++

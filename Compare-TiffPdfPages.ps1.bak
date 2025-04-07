@@ -1,24 +1,31 @@
 <#
 .SYNOPSIS
-    TIFF-PDF Compare Tool - Compares TIFF files with PDF pages
+    TIFF-PDF Compare Tool with Parallel Processing
 .DESCRIPTION
-    Compares the number of TIFF files in folders with their corresponding PDF page counts.
-    Handles nested folder structures and maintains hierarchy when moving files.
-.NOTES
-    Author: NeoMatrix14241
-    Last Updated: 2025-04-04 23:52:26
+    Compares TIFF files with PDF pages using parallel processing for faster execution.
+    Current Date/Time (UTC): 2025-04-05 00:05:13
+    User: NeoMatrix14241
 #>
 
 # Get the script's directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Create a runspace pool for parallel processing
+$RunspacePool = [runspacefactory]::CreateRunspacePool(1, [Environment]::ProcessorCount)
+$RunspacePool.Open()
+$Jobs = New-Object System.Collections.ArrayList
+
+# Script constants
+$CURRENT_UTC_TIME = "2025-04-05 00:05:13"
+$CURRENT_USER = "NeoMatrix14241"
 
 function Show-Menu {
     Clear-Host
     Write-Host "==================================================="
     Write-Host "   TIFF Files and PDF Pages Comparison Tool"
     Write-Host "==================================================="
-    Write-Host "Current Date/Time (UTC): 2025-04-04 23:52:26"
-    Write-Host "User: NeoMatrix14241"
+    Write-Host "Current Date/Time (UTC): $CURRENT_UTC_TIME"
+    Write-Host "User: $CURRENT_USER"
     Write-Host "==================================================="
     Write-Host
 }
@@ -37,6 +44,74 @@ function Write-Log {
     }
     
     Write-Host "[$timestamp] $Type`: $Message" -ForegroundColor $color
+}
+
+function Start-ParallelPdfCheck {
+    param(
+        [string]$PdfPath
+    )
+    
+    $PowerShell = [powershell]::Create().AddScript({
+        param($PdfPath)
+        
+        try {
+            if (-not (Test-Path $PdfPath)) {
+                return @{
+                    Path = $PdfPath
+                    Pages = -1
+                    Error = "File not found"
+                }
+            }
+
+            $pdfData = & pdftk $PdfPath dump_data
+            if ($LASTEXITCODE -ne 0) {
+                return @{
+                    Path = $PdfPath
+                    Pages = -1
+                    Error = "PDFtk failed"
+                }
+            }
+
+            $pageCount = ($pdfData | Select-String "NumberOfPages: (\d+)").Matches.Groups[1].Value
+            if ([string]::IsNullOrEmpty($pageCount)) {
+                return @{
+                    Path = $PdfPath
+                    Pages = -1
+                    Error = "Could not determine page count"
+                }
+            }
+
+            return @{
+                Path = $PdfPath
+                Pages = [int]$pageCount
+                Error = $null
+            }
+        }
+        catch {
+            return @{
+                Path = $PdfPath
+                Pages = -1
+                Error = $_.Exception.Message
+            }
+        }
+    }).AddArgument($PdfPath)
+
+    $PowerShell.RunspacePool = $RunspacePool
+
+    [void]$Jobs.Add(@{
+        PowerShell = $PowerShell
+        Handle = $PowerShell.BeginInvoke()
+        Path = $PdfPath
+    })
+}
+
+function Wait-AllJobs {
+    foreach ($Job in $Jobs) {
+        $Result = $Job.PowerShell.EndInvoke($Job.Handle)
+        $Job.PowerShell.Dispose()
+        $Result
+    }
+    $Jobs.Clear()
 }
 
 function Get-FolderPath {
@@ -93,24 +168,24 @@ function Get-MatchingPdfPath {
     )
     
     try {
-        # Get parent folder directly from FullName
-        $parentFolder = Split-Path -Path $TiffFolder.FullName -Parent
-        $parentName = Split-Path -Path $parentFolder -Leaf
+        # Get the relative path from the input folder
+        $folderName = $TiffFolder.Name
+        $relativePath = $TiffFolder.FullName -replace [regex]::Escape($InputPath), ""
+        $relativePath = $relativePath.TrimStart('\')
         
         Write-Log "Checking possible PDF locations:" -Type Info
-        Write-Log "  Parent folder: $parentName" -Type Info
         
-        # First path: Check in parent folder structure
-        $nestedPath = Join-Path -Path $OutputPath -ChildPath $parentName
-        $nestedPath = Join-Path -Path $nestedPath -ChildPath "$($TiffFolder.Name).pdf"
+        # First path: Check with full folder structure
+        $fullStructurePath = Join-Path -Path $OutputPath -ChildPath $relativePath
+        $fullStructurePath = Join-Path -Path $fullStructurePath -ChildPath "$folderName.pdf"
         
-        # Second path: Check directly in output
-        $directPath = Join-Path -Path $OutputPath -ChildPath "$($TiffFolder.Name).pdf"
+        # Second path: Check direct in output with relative path
+        $directPath = Join-Path -Path $OutputPath -ChildPath "$folderName.pdf"
         
-        Write-Log "  Checking nested path: $nestedPath" -Type Info
-        if (Test-Path -Path $nestedPath -PathType Leaf) {
-            Write-Log "  Found PDF at nested path" -Type Info
-            return $nestedPath
+        Write-Log "  Checking full structure path: $fullStructurePath" -Type Info
+        if (Test-Path -Path $fullStructurePath -PathType Leaf) {
+            Write-Log "  Found PDF at full structure path" -Type Info
+            return $fullStructurePath
         }
         
         Write-Log "  Checking direct path: $directPath" -Type Info
@@ -119,41 +194,20 @@ function Get-MatchingPdfPath {
             return $directPath
         }
         
+        # Third path: Check with preserved folder structure
+        $preservedPath = Join-Path -Path $OutputPath -ChildPath $relativePath
+        $files = Get-ChildItem -Path $preservedPath -Filter "*.pdf" -File
+        if ($files.Count -gt 0) {
+            Write-Log "  Found PDF in preserved structure: $($files[0].FullName)" -Type Info
+            return $files[0].FullName
+        }
+        
         Write-Log "  No PDF found in any location" -Type Warning
         return $null
     }
     catch {
         Write-Log "Error in Get-MatchingPdfPath: $_" -Type Error
         return $null
-    }
-}
-
-function Get-PdfPageCount {
-    param([string]$PdfPath)
-    
-    try {
-        if (-not (Test-Path $PdfPath)) {
-            Write-Log "PDF file does not exist: $PdfPath" -Type Error
-            return -1
-        }
-
-        $pdfData = & pdftk $PdfPath dump_data
-        if ($LASTEXITCODE -ne 0) {
-            Write-Log "PDFtk failed to read the PDF file" -Type Error
-            return -1
-        }
-
-        $pageCount = ($pdfData | Select-String "NumberOfPages: (\d+)").Matches.Groups[1].Value
-        if ([string]::IsNullOrEmpty($pageCount)) {
-            Write-Log "Could not determine page count from PDF" -Type Error
-            return -1
-        }
-
-        return [int]$pageCount
-    }
-    catch {
-        Write-Log "Error reading PDF: $_" -Type Error
-        return -1
     }
 }
 
@@ -247,11 +301,11 @@ do {
 
     switch ($choice) {
         '1' {
-            Write-Host "`nPlease select the input folder (containing TIFF files)..."
+            Write-Host "`n[Containing TIFF/TIF FILES] Please select TIFF/TIF folder..."
             $InputPath = Get-FolderPath "Select Input Folder"
             if (-not $InputPath) { continue }
 
-            Write-Host "`nPlease select the output folder (containing PDF files)..."
+            Write-Host "`n[Containing PDF FILES]Please select the PDF folder..."
             $OutputPath = Get-FolderPath "Select Output Folder"
             if (-not $OutputPath) { continue }
 
@@ -259,21 +313,25 @@ do {
             $MoveToPath = $null
         }
         '2' {
-            Write-Host "`nPlease select the input folder (containing TIFF files)..."
+            Write-Host "`n[Containing TIFF/TIF FILES] Please select TIFF/TIF folder..."
             $InputPath = Get-FolderPath "Select Input Folder"
             if (-not $InputPath) { continue }
 
-            Write-Host "`nPlease select the output folder (containing PDF files)..."
+            Write-Host "`n[Containing PDF FILES]Please select the PDF folder..."
             $OutputPath = Get-FolderPath "Select Output Folder"
             if (-not $OutputPath) { continue }
 
-            Write-Host "`nPlease select the folder where mismatched TIFF files should be moved..."
+            Write-Host "`n[Where To Move] Please select the folder where mismatched TIFF/TIF files should be moved..."
             $MoveToPath = Get-FolderPath "Select Move-To Folder"
             if (-not $MoveToPath) { continue }
 
             $CountOnly = $false
         }
         '3' {
+            if ($RunspacePool) {
+                $RunspacePool.Close()
+                $RunspacePool.Dispose()
+            }
             exit
         }
         default {
@@ -304,6 +362,7 @@ do {
     $script:matchingCount = 0
     $script:mismatchCount = 0
     $script:movedFilesCount = 0
+    $script:pdfCheckErrors = 0
 
     Write-Log "Starting comparison process..." -Type Info
     Write-Log "Input Path: $InputPath" -Type Info
@@ -318,34 +377,54 @@ do {
             Get-ChildItem -Path $_.FullName -Filter "*.tif" -File
         }
 
+    $totalDirs = $tiffDirs.Count
+    Write-Log "Found $totalDirs directories containing TIFF files" -Type Info
+
+    # Process directories in parallel
     foreach ($tiffDir in $tiffDirs) {
         $folderName = $tiffDir.Name
         Write-Log "Processing folder: $folderName" -Type Info
-        Write-Log "Full path: $($tiffDir.FullName)" -Type Info
         
-        # Use new function to find PDF
         $pdfPath = Get-MatchingPdfPath -OutputPath $OutputPath -TiffFolder $tiffDir
         
-        if (-not $pdfPath) {
-            Write-Log "No matching PDF found for folder: $folderName" -Type Warning
-            
+        if ($pdfPath) {
+            Start-ParallelPdfCheck -PdfPath $pdfPath
+        }
+        else {
             if ($MoveToPath -and -not $CountOnly) {
                 $movedCount = Move-TiffFiles -SourceDir $tiffDir -MoveToPath $MoveToPath -InputPath $InputPath
                 $script:movedFilesCount += $movedCount
             }
+        }
+    }
+
+    # Wait for all PDF checks to complete
+    Write-Log "Waiting for parallel PDF checks to complete..." -Type Info
+    $Results = Wait-AllJobs
+
+    # Process results
+    foreach ($Result in $Results) {
+        $pdfPath = $Result.Path
+        $folderName = [System.IO.Path]::GetFileNameWithoutExtension($pdfPath)
+        $tiffDir = $tiffDirs | Where-Object { $_.Name -eq $folderName } | Select-Object -First 1
+        
+        if (-not $tiffDir) {
+            Write-Log "Could not find matching TIFF folder for PDF: $pdfPath" -Type Warning
             continue
         }
         
         $tiffCount = (Get-ChildItem -Path $tiffDir.FullName -Filter "*.tif" -File).Count
-        $pdfPages = Get-PdfPageCount -PdfPath $pdfPath
+        $pdfPages = $Result.Pages
         
         $script:totalProcessed++
         
+        Write-Log "Processing results for: $folderName" -Type Info
         Write-Log "  TIFF files: $tiffCount" -Type Info
         Write-Log "  PDF pages: $pdfPages" -Type Info
         
-        if ($pdfPages -eq -1) {
-            Write-Log "  Status: SKIPPED (Could not read PDF)" -Type Warning
+        if ($Result.Error) {
+            Write-Log "  Error processing PDF: $($Result.Error)" -Type Warning
+            $script:pdfCheckErrors++
             if ($MoveToPath -and -not $CountOnly) {
                 $movedCount = Move-TiffFiles -SourceDir $tiffDir -MoveToPath $MoveToPath -InputPath $InputPath
                 $script:movedFilesCount += $movedCount
@@ -371,9 +450,11 @@ do {
 
     # Display summary
     Write-Log "`nSummary Report:" -Type Info
+    Write-Log "Total directories found: $totalDirs" -Type Info
     Write-Log "Total folders processed: $script:totalProcessed" -Type Info
     Write-Log "Matching counts: $script:matchingCount" -Type Info
     Write-Log "Mismatching counts: $script:mismatchCount" -Type Info
+    Write-Log "PDF check errors: $script:pdfCheckErrors" -Type Info
     Write-Log "Total files moved: $script:movedFilesCount" -Type Info
 
     if ($CountOnly) {
