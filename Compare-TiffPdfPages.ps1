@@ -301,11 +301,11 @@ do {
 
     switch ($choice) {
         '1' {
-            Write-Host "`nPlease select the input folder (containing TIFF files)..."
+            Write-Host "`n[Containing TIFF/TIF FILES] Please select TIFF/TIF folder..."
             $InputPath = Get-FolderPath "Select Input Folder"
             if (-not $InputPath) { continue }
 
-            Write-Host "`nPlease select the output folder (containing PDF files)..."
+            Write-Host "`n[Containing PDF FILES]Please select the PDF folder..."
             $OutputPath = Get-FolderPath "Select Output Folder"
             if (-not $OutputPath) { continue }
 
@@ -313,15 +313,15 @@ do {
             $MoveToPath = $null
         }
         '2' {
-            Write-Host "`nPlease select the input folder (containing TIFF files)..."
+            Write-Host "`n[Containing TIFF/TIF FILES] Please select TIFF/TIF folder..."
             $InputPath = Get-FolderPath "Select Input Folder"
             if (-not $InputPath) { continue }
 
-            Write-Host "`nPlease select the output folder (containing PDF files)..."
+            Write-Host "`n[Containing PDF FILES]Please select the PDF folder..."
             $OutputPath = Get-FolderPath "Select Output Folder"
             if (-not $OutputPath) { continue }
 
-            Write-Host "`nPlease select the folder where mismatched TIFF files should be moved..."
+            Write-Host "`n[Where To Move] Please select the folder where mismatched TIFF/TIF files should be moved..."
             $MoveToPath = Get-FolderPath "Select Move-To Folder"
             if (-not $MoveToPath) { continue }
 
