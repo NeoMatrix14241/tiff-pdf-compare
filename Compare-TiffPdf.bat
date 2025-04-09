@@ -11,6 +11,9 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b 1
 )
 
+:: Unblock files
+powershell -ExecutionPolicy Bypass -Command & '%~dp0unblocker.ps1'
+
 :: Launch PowerShell script with execution policy bypass
 powershell.exe -ExecutionPolicy Bypass -File "%~dp0Compare-TiffPdfPages.ps1"
 
